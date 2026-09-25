@@ -19,3 +19,11 @@ Research references (no source files, brands, images, or marketing copy were cop
 - cdredfox/workbuddy-skin-studio — MIT. Consulted for WorkBuddy renderer URL discovery and loopback CDP workflow.
 
 See `docs/RESEARCH.md` for exact observations. User-imported backgrounds are not part of PrismDesk and remain subject to their original rights.
+
+## Project artwork
+
+The desktop-pet character "Prism" is original artwork created for this repository and authored as
+inline SVG in `src/pet/index.html`, with its animation authored in `src/pet/pet.css`. The tray gem in
+`scripts/tray-icon.mjs` is generated geometry rendered to a PNG at build time. Both are covered by
+this project's MIT license. No third-party character, sprite, screenshot, or downloaded image asset is
+used by the desktop pet or the tray icon.

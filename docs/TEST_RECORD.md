@@ -205,3 +205,76 @@ payload, and the painted status field.
 - Codex CPU cost could not be attributed to the layer: the app's own start-up load dominated the
   sampling window and the window was hidden (animation paused) for most of it.
 - Client-native modal and window-manager behaviour still needs a manual pass on an interactive desktop.
+
+## Desktop pet entry - 2026-09-26 (feat/desktop-pet)
+
+### Automated
+
+```text
+npm run check  -> PASS
+npm test       -> PASS (26/26, 15 of them new pet rules)
+npm run build  -> PASS (also regenerates dist/assets/tray.png and tray@2x.png)
+```
+
+The new unit tests cover position-schema validation including unknown-field rejection, a tampered
+`pet.json` falling back instead of throwing, restart/straddling/removed-display/resolution-change
+clamping, the hit ellipse (only the character silhouette takes the pointer), and the 4 px drag
+threshold that separates a click from a move.
+
+### Live run on the real desktop
+
+Windows 11, single display 2560x1600 at 150% scaling, so 1 DIP = 1.5 physical px. The pet started at
+the stored position and every measurement below is a real window probe (`GetWindowRect`,
+`GetWindowLongW(GWL_EXSTYLE)`, `IsIconic`) or a real synthetic mouse gesture, run in one process so
+that no PowerShell round-trip can distort the timing.
+
+| Check | Result |
+|---|---|
+| Pet window geometry | PASS — 168x168 DIP (`252x252`/`255x255` physical), transparent, `WS_EX_LAYERED`, `WS_EX_NOACTIVATE`, topmost, no taskbar button |
+| Transparent margin is click-through | PASS — hover the corner: `WS_EX_TRANSPARENT` set; click there leaves the settings window hidden |
+| Character area takes the pointer | PASS — hover the centre: `WS_EX_TRANSPARENT` cleared within one 32 ms poll |
+| Drag moves the pet | PASS — a `(-250,-180)` gesture moved the window `-240,-172` (the difference is the 4 px threshold plus one 12.5 px step, by design) |
+| Drag does not change the window size | PASS — still 168 DIP after three drags (this was a real bug: `setPosition` alone grew it to 254 DIP) |
+| Drag never opens the settings window | PASS — settings stayed hidden through every drag, including a drag started while it was parked |
+| Click the character | PASS — settings window became visible and was the foreground window |
+| Close the settings window | PASS — `close` -> cancelled -> hidden: `visible=false iconic=false`, and the pet was still on the desktop |
+| Close while a stray minimise is in flight | PASS — the parked state is re-asserted; no taskbar button appears for a window the user closed |
+| Click the character again | PASS — settings window shown and focused again |
+| Stray minimise after `show()` | PASS (mitigated) — the environment minimised a freshly shown window at +1.7 s, +1.8 s and +3.5 s in different runs, and reproduced it with a bare Electron window with no PrismDesk code; the guard restores the window, so the settings UI never vanishes on its own |
+| Tray icon exists | PASS — found through UI Automation: `PrismDesk 桌宠`, 60x60 next to the taskbar in the notification-area flyout |
+| Remembered position across a restart | PASS — `pet.json` `{x:1324,y:588}` -> the relaunched pet sat at physical `1986,882` = `1324,588` DIP |
+| Both clients connected | PASS — `targets:status` reported Codex 26.917.9434.0 and WorkBuddy 5.5.3 with `已连接`, and loopback ports 9222/9223 were both accepting connections |
+| Tray menu items themselves | NOT AUTOMATED — see below; the icon is present and its menu is the two labels built in `main.ts` |
+
+### Findings that produced code changes
+
+1. **Per-monitor-DPI size drift.** With 150% scaling, moving the pet with `setPosition()` alone grew
+   the window from 168 to 254 DIP over two drags. Every move now writes the full intended size with
+   `setBounds()`.
+2. **A click-through window stops receiving mouse events entirely, and the renderer cannot toggle the
+   flag back.** With `setIgnoreMouseEvents(true)` Windows delivers no mouse messages to the window at
+   all (not even forwarded ones), so the renderer can never notice that the cursor came back. The hit
+   test therefore lives in the main process, which polls the cursor and toggles the flag; the renderer
+   keeps `isPetHit()` as a second guard on `pointerdown`.
+3. **A stray minimise of a freshly shown window.** Reproduced without any PrismDesk code, so it is a
+   property of this desktop, not of the pet. A stray minimise inside a short window after `show()` is
+   reverted, and a parked window is re-hidden instead of being left iconic, which is what would
+   otherwise strand a taskbar button for a closed window.
+
+### Not verified / manual steps
+
+The Windows 11 notification-area flyout is a XAML island: UI Automation can focus the PrismDesk icon
+(`name=[ PrismDesk 桌宠] rect=2077,1262 60x60`) and `Win+B` reaches the taskbar, but synthetic
+right-clicks and the Applications key are both swallowed, so the two menu items could not be clicked
+from this session. Please confirm by hand:
+
+1. Right-click the PrismDesk gem in the notification area (under “显示隐藏的图标” if hidden) and check
+   the menu reads `打开设置` / `退出 PrismDesk`.
+2. `打开设置` shows and focuses the settings window.
+3. Close the settings window: it disappears from the taskbar and desktop while the pet stays put and
+   the tray icon remains.
+4. `退出 PrismDesk`: the pet disappears, the tray icon disappears, and no `PrismDesk`/`electron`
+   process is left in Task Manager.
+
+Also still manual: dragging the pet across two real monitors, and unplugging a monitor while the pet
+is on it (the clamp is unit-tested for both, but not exercised on two physical displays here).
