@@ -3,6 +3,16 @@ dist/
 release/
 .research/
 *.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.dmp
+debug/
+user-data/
 coverage/
 .DS_Store
 Thumbs.db
