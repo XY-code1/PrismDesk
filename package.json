@@ -26,8 +26,10 @@
     "appId": "org.prismdesk.app",
     "productName": "PrismDesk",
     "directories": { "output": "release" },
-    "files": ["dist/**/*", "package.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-    "win": { "target": ["nsis", "portable"], "artifactName": "PrismDesk-${version}-${arch}.${ext}" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false }
+    "files": ["dist/**/*", "scripts/launch-codex-cdp.ps1", "package.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    "asarUnpack": ["scripts/launch-codex-cdp.ps1"],
+    "win": { "target": ["nsis", "portable"] },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false, "artifactName": "PrismDesk-Setup-${version}-${arch}.${ext}" },
+    "portable": { "artifactName": "PrismDesk-Portable-${version}-${arch}.${ext}" }
   }
 }

@@ -22,7 +22,7 @@ npm run dev
 npm run package:win
 ```
 
-安装包输出到 `release/`。卸载 PrismDesk 不会修改客户端；若卸载前仍已注入，请先在每个已连接客户端点击“恢复默认”。配置默认保留，手动删除 `%APPDATA%\PrismDesk` 可彻底清理。
+安装包输出到 `release/`：`PrismDesk-Setup-0.1.0-x64.exe` 为安装版，`PrismDesk-Portable-0.1.0-x64.exe` 为便携版。卸载 PrismDesk 不会修改客户端；若卸载前仍已注入，请先在每个已连接客户端点击“恢复默认”。配置默认保留，手动删除 `%APPDATA%\PrismDesk` 可彻底清理。
 
 ## 使用
 

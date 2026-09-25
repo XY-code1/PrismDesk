@@ -30,10 +30,21 @@ Executable detected at the standard per-user install location. It was not runnin
 
 The screenshot masks the entire sidebar before capture and contains no chat list, account identifier, credential, or user background. The temporary mask was removed before restoration.
 
-## Codex 26.917.9434.0
+## Codex 26.917.9434.0 — real client
 
-Installation and running process were detected. Codex was already hosting the task used to build PrismDesk, so it was not restarted. Live injection, screenshot, interaction tests and restoration remain pending rather than being reported as supported.
+The validated Microsoft Store package was launched with loopback CDP. Port ownership was checked against the exact Store executable and only the exact main renderer URL `app://-/index.html` was selected; avatar, detached-window, browser, and sandbox targets were excluded.
+
+| Check | Result |
+|---|---|
+| Aurora apply | PASS — one exact main renderer acknowledged the layer |
+| Image apply | PASS — one local PNG data URL image node |
+| Re-apply | PASS — exactly 1 background, 1 style and 1 canvas |
+| Restore | PASS — renderer reported restored and follow-up status was connected/not applied |
+| Visual background | PASS — privacy-blurred screenshot below |
+| Input, copy, scroll, modal | NOT YET MANUALLY EXECUTED; no claim of verification |
+
+![Codex 26.917.9434 aurora validation](screenshots/codex-26.917.9434-aurora.png)
 
 ## Packaging
 
-Renderer/main bundles were produced locally in `dist/`. Windows installer generation is pending: Electron's binary download was reset/timed out in this environment, so no installer path is claimed. The checked-in `electron-builder` configuration produces NSIS and portable artifacts under `release/` once dependencies can be downloaded.
+Renderer/main bundles and Windows packages were produced. `release/PrismDesk-Setup-0.1.0-x64.exe` and `release/PrismDesk-Portable-0.1.0-x64.exe` were generated; the unpacked executable remained running for the six-second smoke window. The binaries are unsigned community builds.
