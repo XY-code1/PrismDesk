@@ -1,0 +1,16 @@
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { join } from 'node:path';
+import { Store } from './store.js';
+import * as adapters from './adapters.js';
+import { validateTheme, type TargetId } from '../shared/types.js';
+let win:BrowserWindow; let store:Store;
+app.whenReady().then(async()=>{store=new Store(join(app.getPath('userData'),'themes'));win=new BrowserWindow({width:1120,height:760,minWidth:900,minHeight:640,backgroundColor:'#090b12',webPreferences:{preload:join(app.getAppPath(),'dist/preload.cjs'),contextIsolation:true,nodeIntegration:false}});await win.loadFile(join(app.getAppPath(),'dist/renderer/index.html'));});
+app.on('window-all-closed',()=>app.quit());
+ipcMain.handle('theme:load',()=>store.load());
+ipcMain.handle('theme:save',(_,v)=>store.save(v));
+ipcMain.handle('theme:image',async()=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Images',extensions:['png','jpg','jpeg','webp']}]});return r.canceled?null:store.importImage(r.filePaths[0]);});
+ipcMain.handle('theme:import',async()=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'PrismDesk theme',extensions:['json']}]});return r.canceled?null:store.importTheme(r.filePaths[0]);});
+ipcMain.handle('targets:status',()=>Promise.all((['codex','workbuddy'] as TargetId[]).map(adapters.status)));
+ipcMain.handle('target:launch',(_,id:TargetId)=>adapters.launch(id));
+ipcMain.handle('target:apply',async(_,id:TargetId,v:unknown)=>adapters.apply(id,await store.save(validateTheme(v))));
+ipcMain.handle('target:restore',(_,id:TargetId)=>adapters.restore(id));

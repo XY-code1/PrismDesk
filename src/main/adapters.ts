@@ -1,0 +1,21 @@
+import { execFile, spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
+import { extname } from 'node:path';
+import { targets, evaluate } from './cdp.js';
+import { buildApplyScript, removeScript, statusScript } from './injection.js';
+import type { TargetId, TargetStatus, Theme } from '../shared/types.js';
+const exec=promisify(execFile);
+const defs={
+  workbuddy:{name:'WorkBuddy',port:9223,exe:`${process.env.LOCALAPPDATA}\\Programs\\WorkBuddy\\WorkBuddy.exe`,hint:'renderer/index.html'},
+  codex:{name:'Codex',port:9222,exe:'',hint:'app://'}
+} as const;
+const mime:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
+async function exists(path:string){try{await readFile(path);return true}catch{return false}}
+async function versionOf(path:string){if(!path)return undefined;try{const {stdout}=await exec('powershell.exe',['-NoProfile','-Command',`(Get-Item -LiteralPath '${path.replaceAll("'","''")}').VersionInfo.ProductVersion`]);return stdout.trim()}catch{return undefined}}
+async function definition(id:TargetId){if(id==='codex'){try{const {stdout}=await exec('powershell.exe',['-NoProfile','-Command',"(Get-AppxPackage OpenAI.Codex | Sort-Object Version -Descending | Select-Object -First 1 | ConvertTo-Json -Compress)"]);const p=JSON.parse(stdout);return {...defs.codex,exe:`${p.InstallLocation}\\app\\ChatGPT.exe`,version:String(p.Version)}}catch{return {...defs.codex,version:undefined}}}return {...defs.workbuddy,version:await versionOf(defs.workbuddy.exe)}}
+async function matching(id:TargetId){const d=await definition(id);const list=await targets(d.port);const pages=list.filter(t=>t.type==='page'&&t.url.includes(d.hint)&&new URL(t.webSocketDebuggerUrl).hostname==='127.0.0.1');if(!pages.length)throw new Error('调试端口属于其他服务或未找到目标渲染页');return {d,pages}}
+export async function status(id:TargetId):Promise<TargetStatus>{const d=await definition(id);const installed=await exists(d.exe);if(!installed)return{id,name:d.name,installed:false,running:false,connected:false,status:'not_installed',detail:'未安装'};let running=false;try{const {stdout}=await exec('powershell.exe',['-NoProfile','-Command',`[bool](Get-Process -Name '${id==='codex'?'ChatGPT':'WorkBuddy'}' -ErrorAction SilentlyContinue)`]);running=stdout.trim()==='True'}catch{};try{const {pages}=await matching(id);const states=await Promise.all(pages.map(p=>evaluate(p.webSocketDebuggerUrl,statusScript))) as any[];return{id,name:d.name,installed:true,running:true,connected:true,version:d.version,installPath:d.exe,status:states.some(s=>s?.applied)?'applied':'connected',detail:states.some(s=>s?.applied)?'已应用':'已连接'}}catch(error){return{id,name:d.name,installed:true,running,connected:false,version:d.version,installPath:d.exe,status:running?'needs_restart':'not_running',detail:running?'需要以本机调试模式重启':'未运行'}}}
+export async function launch(id:TargetId){const s=await status(id);if(s.running&&!s.connected)throw new Error(`${s.name} 正在运行；为避免中断任务，PrismDesk 不会自动重启。请先手动退出后再连接。`);if(s.connected)return s;const d=await definition(id);if(!await exists(d.exe))throw new Error('客户端未安装');spawn(d.exe,[`--remote-debugging-address=127.0.0.1`,`--remote-debugging-port=${d.port}`],{detached:true,stdio:'ignore'}).unref();for(let i=0;i<40;i++){await new Promise(r=>setTimeout(r,500));const now=await status(id);if(now.connected)return now}throw new Error('客户端调试端口未就绪')}
+export async function apply(id:TargetId,theme:Theme){const {pages}=await matching(id);let data: string|undefined;if(theme.kind==='image'&&theme.imagePath){const bytes=await readFile(theme.imagePath);const type=mime[extname(theme.imagePath).toLowerCase()];if(!type)throw new Error('图片类型不支持');data=`data:${type};base64,${bytes.toString('base64')}`}const results=await Promise.all(pages.map(p=>evaluate(p.webSocketDebuggerUrl,buildApplyScript(theme,data)))) as any[];if(results.some(r=>!r?.ok))throw new Error('注入校验失败');return {targets:results.length,results}}
+export async function restore(id:TargetId){const {pages}=await matching(id);const results=await Promise.all(pages.map(p=>evaluate(p.webSocketDebuggerUrl,removeScript)));return {targets:results.length,restored:results.every(Boolean)}}

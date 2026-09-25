@@ -1,0 +1,33 @@
+{
+  "name": "prismdesk",
+  "version": "0.1.0",
+  "description": "Independent community background manager for Codex and WorkBuddy",
+  "type": "module",
+  "main": "dist/main/main.js",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node scripts/build.mjs && electron .",
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "package:win": "npm run check && npm test && npm run build && electron-builder --win nsis portable"
+  },
+  "dependencies": { "ws": "^8.18.3" },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/ws": "^8.18.1",
+    "electron": "^38.3.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.10",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "org.prismdesk.app",
+    "productName": "PrismDesk",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "package.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    "win": { "target": ["nsis", "portable"], "artifactName": "PrismDesk-${version}-${arch}.${ext}" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false }
+  }
+}

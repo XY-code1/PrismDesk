@@ -1,0 +1,21 @@
+name: Bug report
+description: Report a PrismDesk compatibility or behavior problem
+body:
+  - type: input
+    id: client
+    attributes: { label: Client and exact version }
+    validations: { required: true }
+  - type: input
+    id: windows
+    attributes: { label: Windows version }
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: Reproduction steps }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: Expected and actual result }
+    validations: { required: true }
+  - type: markdown
+    attributes: { value: "Do not attach chats, credentials, client binaries, personal backgrounds, or unredacted logs." }
