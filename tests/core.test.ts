@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateTheme } from '../src/shared/types.js';
-import { buildApplyScript, removeScript } from '../src/main/injection.js';
+import { buildApplyScript, removeScript, statusScript } from '../src/main/injection.js';
 import { Store } from '../src/main/store.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -13,3 +13,9 @@ test('theme schema rejects scripts and unknown fields',()=>assert.throws(()=>val
 test('theme schema rejects unsafe ranges',()=>assert.throws(()=>validateTheme({...good,opacity:2}),/超出范围/));
 test('apply is idempotent and cleanup is PrismDesk-scoped',()=>{const script=buildApplyScript(validateTheme(good));assert.match(script,/prismdesk-background/);assert.match(script,/__prismdeskCleanup/);assert.doesNotMatch(removeScript,/querySelectorAll\(['"]style/);});
 test('settings persist across Store instances',async()=>{const root=await mkdtemp(join(tmpdir(),'prismdesk-'));try{await new Store(root).save({...good,name:'Persisted'});assert.equal((await new Store(root).load()).name,'Persisted')}finally{await rm(root,{recursive:true,force:true})}});
+test('background layer stays behind every client node and never receives pointer events',()=>{const script=buildApplyScript(validateTheme(good));assert.match(script,/z-index:-1/);assert.match(script,/pointer-events:none/);assert.doesNotMatch(script,/#root\{position:relative/);assert.doesNotMatch(script,/#root\{[^}]*z-index/);});
+test('background layer paints a first frame instead of waiting for a visibility change',()=>{const theme=validateTheme(good);for(const motion of [true,false]){const script=buildApplyScript({...theme,motion});assert.match(script,/resize=\(\)=>\{const k=[^;]*;canvas\.width=[^;]*;canvas\.height=[^;]*;paint\(last\)\}/);assert.match(script,/resize\(\);addEventListener\('resize',resize\)/);assert.match(script,/tick=t=>\{if\(document\.hidden\)\{raf=0;return\}/);assert.doesNotMatch(script,/if\(!c\.motion\|\|document\.hidden\)return/);}});
+test('canvas backing store follows the device pixel ratio',()=>{const script=buildApplyScript(validateTheme(good));assert.match(script,/canvas\.width=Math\.max\(1,Math\.round\(innerWidth\*k\)\)/);assert.doesNotMatch(script,/innerWidth\/devicePixelRatio/);});
+test('injected css only neutralises verified client surfaces',()=>{const script=buildApplyScript(validateTheme(good));assert.doesNotMatch(script,/data-view-id/);assert.match(script,/\[class\*=_MainContentSurface_\]/);assert.match(script,/\.teams-container/);});
+test('image payload embeds one managed data url and no markup',()=>{const script=buildApplyScript(validateTheme({...good,kind:'image',imagePath:'C:\\x.png'}),'data:image/png;base64,AAAA');assert.match(script,/img\.src=c\.imageData/);assert.doesNotMatch(script,/<script|javascript:/);});
+test('status reports whether the layer actually painted',()=>{assert.match(statusScript,/painted/);assert.match(statusScript,/getImageData/);});

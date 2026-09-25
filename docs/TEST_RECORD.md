@@ -104,3 +104,104 @@ images above remain the only published evidence.
 Packaging ran again after the fix: `npm run package:win` exited 0 with every artifact download served
 by npmmirror and no `github.com` request. The `release/` installers are unsigned community builds
 (`signHook=false cscInfo=null`).
+
+## Blocking-issue fix - 2026-09-26 (0.1.0-alpha.1 development build)
+
+Reported blockers: in Codex the chat input was reported unusable after applying a background, and in
+WorkBuddy re-apply, kind switching and restore-default behaved abnormally. Both clients were exercised
+live before and after the change. No installer was produced from this change.
+
+### Reproduction
+
+Codex desktop `26.917.9434.0` (Store package, loopback CDP 9222, main target `app://-/index.html`; the
+avatar window `app://-/index.html?initialRoute=%2Favatar-overlay` is a second page target and is
+excluded by the exact-URL rule):
+
+- The delivered payload (layer at `z-index:0`, plus `#root{position:relative;z-index:1}`) **painted
+  nothing when the client window was hidden/occluded at apply time**. `draw()` returned immediately on
+  `document.hidden` without rescheduling, and the `motion:false` branch skipped its single frame for
+  the same reason, so a capture taken right after apply showed an empty background while a later
+  capture showed the aurora.
+- The canvas backing store used `innerWidth/devicePixelRatio`: 854x544 for a 1280x816 viewport at
+  DPR 1.5, i.e. an undersized, soft background.
+- An input-blocking mechanism could **not** be reproduced: the 49-point `elementFromPoint` sweep was
+  identical before and after apply, the composer centre hit tested to `.ProseMirror`, click-to-focus,
+  an 8-character `Input.insertText` and clearing all succeeded, and Ctrl+C produced the expected copy
+  event. The one structural change the old payload made to the host app was forcing `#root` to
+  `position:relative;z-index:1`, which turns the client root into a stacking context and can trap
+  app-owned overlays and popups - a hard requirement here - so it was removed rather than left
+  unproven.
+
+WorkBuddy `5.5.3.0` (per-user install, loopback CDP 9223, `renderer/index.html`):
+
+- The delivered CSS used `[data-view-id]`, `[data-view-id=sidebar]`, `[data-view-id=detail-panel]` and
+  `[data-view-id=main-content]`. In WorkBuddy those attributes are **not** layout landmarks: they match
+  four unrelated home-grid cards (`_gridViewItem_1ens7_14`), so applying a background restyled app cards
+  with `backdrop-filter:blur(18px)`, a `color-mix` background and a `linear-gradient`. The effect
+  appeared and disappeared as the user switched routes; this is the reproduced switching anomaly.
+- Layer counts, `#root` state, cleanup handlers and the restored `.teams-container` background were
+  already correct across apply/re-apply/switch/restore, so no idempotency defect was found.
+- The status pill can lag one action behind because a single status call takes about 3.5 s per client
+  (each call spawns several PowerShell processes). Observed, not a correctness defect.
+
+### Change
+
+- `src/main/injection.ts`: the layer is now `z-index:-1` with `pointer-events:none`, and the payload no
+  longer touches the client's `#root` stacking, so the layer is behind every client node and cannot
+  cover or intercept input, selection, copy, scroll, popups or shortcuts.
+- The first frame is painted synchronously during apply, before any visibility test, so the background
+  appears even when PrismDesk's own window was in front during apply. `document.hidden` now only pauses
+  the animation loop, and `visibilitychange` repaints and resumes it.
+- The canvas backing store is `innerWidth x devicePixelRatio` (clamped 1..4), so scaled displays get a
+  correctly sized background.
+- The coincidental `[data-view-id]` rules were dropped; only selectors verified on real client nodes
+  remain.
+- `statusScript` reports a painted flag (sampled canvas alpha), so an applied-but-never-painted layer is
+  detectable, and cleanup uses `querySelectorAll('#prismdesk-...')`.
+
+### Automated
+
+```text
+npm run check  -> PASS
+npm test       -> PASS (13/13, 6 new regression assertions)
+npm run build  -> PASS
+```
+
+The new assertions lock in: layer behind everything with no `#root` mutation, a synchronous first paint
+for both `motion` values, a DPR-sized canvas, no `[data-view-id]` selectors, a data-URL-only image
+payload, and the painted status field.
+
+### Real-client matrix after the change
+
+| Check | Codex 26.917.9434.0 | WorkBuddy 5.5.3.0 |
+|---|---|---|
+| Apply aurora, motion on | PASS - 1 layer/1 style, `painted:true` | PASS - 1/1, `painted:true` |
+| Re-apply | PASS - still exactly 1/1/1 | PASS - 1/1/1 |
+| Switch to image | PASS - 1 layer/1 img/0 canvas | PASS - 1 layer/1 img/0 canvas |
+| Pause (motion off) | PASS - one static frame painted | PASS - one static frame painted |
+| Restore default | PASS - 0 layers/0 styles, `#root` untouched | PASS - 0/0, `.teams-container` back to `rgb(242,242,242)` |
+| After client restart | PASS - connected and not applied; a plain restart reports `needs_restart` | PASS - connected and not applied |
+| Layer hit-testing | PASS - 49-point sweep identical to the pre-apply baseline | PASS - identical |
+| Composer | PASS - click focuses `.ProseMirror`, 8-char insert, then cleared | PASS - click focuses `_editable_*`, insert, then cleared |
+| Selection + Ctrl+C | PASS - 8-char selection, copy event fired with matching text | PASS - 8-char selection, copy event fired |
+| Scroll | container hit tests to an app node and scrolls programmatically (0 -> 240 px) | container hit tests to `_title_914ll_23` and scrolls to its 158 px maximum |
+| Motion animation | PASS - canvas pixels changed over 1.3 s with the window visible | NOT VERIFIED - no compositor frames while occluded |
+| Paused while hidden | PASS - frames static, CPU at baseline | PASS - frames static |
+| Unintended client styling | PASS - no `[data-view-id]` matches remain | PASS - `_gridViewItem_*` cards keep `backdrop-filter:none` |
+| PrismDesk UI path | PASS - refresh, apply and restore each reported success in the UI | PASS - same |
+
+### Not verified / limits of this pass
+
+- Wheel events delivered through CDP were only acknowledged while a client window was visible; in the
+  occluded state no compositor frames were produced and the dispatch timed out, so wheel-driven
+  scrolling is still unconfirmed. Hit testing, pointer-event transparency and programmatic scrolling
+  were confirmed instead.
+- WorkBuddy produced no compositor frames while occluded, so no WorkBuddy screenshot or canvas
+  time-series could be captured in this pass; its layer was verified with DOM/state probes and the
+  painted flag. The privacy-masked screenshots above remain the only published images.
+- Real keyboard and IME typing could not be exercised on the client windows because this session has no
+  interactive desktop; text was injected through `Input.insertText` and key events were confirmed to
+  reach the page.
+- Codex CPU cost could not be attributed to the layer: the app's own start-up load dominated the
+  sampling window and the window was hidden (animation paused) for most of it.
+- Client-native modal and window-manager behaviour still needs a manual pass on an interactive desktop.
