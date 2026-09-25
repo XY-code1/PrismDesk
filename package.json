@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs",
     "check": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "package:win": "npm run check && npm test && npm run build && electron-builder --win nsis portable"
+    "package:win": "node scripts/package-win.mjs"
   },
   "dependencies": { "ws": "^8.18.3" },
   "devDependencies": {
