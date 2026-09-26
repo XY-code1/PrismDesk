@@ -15,3 +15,14 @@ Only installation metadata, process command lines, executable versions, package 
 - `cdredfox/workbuddy-skin-studio` 1.0.0: MIT; its source confirms WorkBuddy renderer URLs contain `renderer/index.html` and uses port 9223. No source or bundled images were copied.
 
 PrismDesk's payload and UI are original. Dependency licenses are recorded in `THIRD_PARTY_NOTICES.md`.
+## Phase 2 - Wallpaper Engine (investigation only)
+
+`docs/RESEARCH-WALLPAPER-ENGINE.md` records what Wallpaper Engine publicly exposes, which local
+paths and registry keys can be detected, and which ideas are feasible. Summary: detection is a
+registry key plus the Steam library manifests; play/pause would go through the community-documented
+`-control` command line and is version-fragile; there is no embedding API, so rendering a wallpaper
+inside a client window is not planned. Verified locally on 2026-09-26 while writing that document:
+Steam is installed at `D:\steam` with a single library, and app `431960` (Wallpaper Engine) is not
+installed, so no `wallpaper_engine` folder or Workshop content was inspected. Non-goals, in writing:
+no Workshop scraping, no redistribution or bundling of third-party wallpapers, and no code that reads
+`steamapps/workshop/content/431960`.
