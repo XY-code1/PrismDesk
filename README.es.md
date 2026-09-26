@@ -10,7 +10,7 @@ PrismDesk es una herramienta de apariencia de código abierto para Windows 11. A
 
 ## Estado y funciones
 
-La versión actual es **`0.1.0-alpha.1`** para Windows 11 x64. Se verificaron imagen, aurora, reaplicación y restauración en Codex 26.917.9434.0 y WorkBuddy 5.5.3.0; la pausa también se verificó en WorkBuddy. La mascota flotante dentro del cliente supera las pruebas automáticas (49/49), pero su verificación manual en clientes reales sigue pendiente y figura en la [matriz de pruebas](docs/TEST_RECORD.md).
+La versión actual es **`0.1.0-alpha.1`** para Windows 11 x64. Se verificaron imagen, aurora, reaplicación y restauración en Codex 26.917.9434.0 y WorkBuddy 5.5.3.0; la pausa también se verificó en WorkBuddy. La mascota flotante dentro del cliente supera las pruebas automáticas (58/58), pero su verificación manual en clientes reales sigue pendiente y figura en la [matriz de pruebas](docs/TEST_RECORD.md).
 
 - Detecta instalación, versión, proceso, conexión y compatibilidad.
 - Importa PNG/JPEG/WebP e incluye una aurora Canvas sin recursos remotos.
@@ -49,7 +49,7 @@ La mascota flotante dentro del cliente es la forma predeterminada y se cambia en
 
 ## Limitaciones
 
-La inyección dura una sesión y las actualizaciones del cliente requieren nueva verificación. Entrada de texto, copia de código, desplazamiento largo, todos los diálogos y actualización o desinstalación en un sistema limpio siguen siendo pruebas manuales. El tamaño, el espejo y la visibilidad de la mascota son comunes a ambos clientes; solo la posición se recuerda por cliente. Wallpaper Engine es la segunda fase: solo existe el estudio de su integración pública y de las rutas detectables ([nota de investigación](docs/RESEARCH-WALLPAPER-ENGINE.md)); no se extraen recursos del Workshop de Steam ni se incluyen fondos de terceros en el repositorio. Las compilaciones de prueba no tienen firma comercial.
+La inyección dura una sesión; si el cliente se inicia con su puerto CDP (mediante 连接 de PrismDesk), PrismDesk vuelve a inyectar automáticamente unos segundos después de que el cliente reaparezca y restaura la posición recordada. Las actualizaciones del cliente requieren nueva verificación. Entrada de texto, copia de código, desplazamiento largo, todos los diálogos y actualización o desinstalación en un sistema limpio siguen siendo pruebas manuales. El tamaño, el espejo y la visibilidad de la mascota son comunes a ambos clientes; solo la posición se recuerda por cliente. Wallpaper Engine es la segunda fase: solo existe el estudio de su integración pública y de las rutas detectables ([nota de investigación](docs/RESEARCH-WALLPAPER-ENGINE.md)); no se extraen recursos del Workshop de Steam ni se incluyen fondos de terceros en el repositorio. Las compilaciones de prueba no tienen firma comercial.
 
 [Arquitectura](docs/ARCHITECTURE.md) · [Compatibilidad](docs/COMPATIBILITY.md) · [Pruebas](docs/TEST_RECORD.md) · [Contribuir](CONTRIBUTING.md) · [Licencias de terceros](THIRD_PARTY_NOTICES.md)
 

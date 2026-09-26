@@ -7,6 +7,7 @@ export type BackgroundKind = 'aurora' | 'image';
 export type PetMode = 'in-app' | 'desktop';
 export type PetAppearance = {
   size: number;
+  opacity: number;
   mirror: boolean;
   visible: boolean;
   imagePath?: string;

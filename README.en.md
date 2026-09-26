@@ -17,7 +17,7 @@ Current version: **`0.1.0-alpha.1`**, targeting Windows 11 x64.
 | Codex desktop | 26.917.9434.0 | Image, aurora, repeated apply, and restore verified |
 | WorkBuddy | 5.5.3.0 | Image, aurora, repeated apply, pause, and restore verified |
 
-The in-client floating pet passes the automated suite (49/49). Its manual matrix in the [test record](docs/TEST_RECORD.md) still has to be executed on a real desktop before that mode may be called verified there. Exact scope and open items are in the [compatibility list](docs/COMPATIBILITY.md).
+The in-client floating pet passes the automated suite (58/58). Its manual matrix in the [test record](docs/TEST_RECORD.md) still has to be completed on a real desktop before that mode may be called verified there. Exact scope and open items are in the [compatibility list](docs/COMPATIBILITY.md).
 
 ## Features
 
@@ -42,7 +42,7 @@ PrismDesk does not modify installation files, `app.asar`, signatures, or integri
 - Codex: `127.0.0.1:9222`, exact target `app://-/index.html`.
 - WorkBuddy: `127.0.0.1:9223`, target containing `renderer/index.html`.
 
-The pet and the panel live in the client renderer process as two host elements with fixed ids and two shadow roots; they never register a listener on a page node. PrismDesk hit-tests the transparent area itself, which is what leaves the page's own scrolling, typing, and popups alone. The injected page's request queue is drained by the main process every 900 ms, and every entry passes the same strict validation as the configuration file.
+The pet and the panel live in the client renderer process as two host elements with fixed ids and two shadow roots; they never register a listener on a page node. Only the character's own silhouette is a pointer target (the artwork is clipped to it), the transparent area is not, and a wheel over the character is forwarded to the scrollable container underneath it, which is what leaves the page's own scrolling, typing, and popups alone. The injected page's request queue is drained by the main process every 900 ms, and every entry passes the same strict validation as the configuration file.
 
 When a client is running without CDP, PrismDesk never restarts it, so an ongoing task is not interrupted. Connecting and diagnosing never read chat bodies or account credentials, and logs do not record page content.
 
@@ -80,7 +80,7 @@ Packaging runs type-checking, tests, build, NSIS, and portable targets in that o
 **In-client floating pet (default)**
 
 - The pet is a widget inside the client window: it never leaves the window and never becomes a separate window or taskbar button.
-- Drag the character to move it and drag the bottom-right grip to scale it (48-256 px). The position is stored per client in Electron `userData/in-app-pet.json`.
+- Drag the character to move it and drag the bottom-right grip to scale it (40-160 px). It starts in the top-right corner of the client area, below whatever titlebar the client owns, and the position is stored per client in Electron `userData/in-app-pet.json`.
 - A single click opens the PrismDesk side panel and a second click closes it; the panel tunes the background and the parameters, pauses motion, and imports pet artwork.
 - Only the opaque pixels of the character receive the pointer; everything else is click-through, and the pet's own gestures never reach the page.
 - Pet artwork accepts a transparent PNG, WebP, or GIF (up to 4 MB per file, validated by content) and is copied into `userData/themes/pet-assets` for local use only.
@@ -98,7 +98,7 @@ The theme lives in Electron `userData/themes/config.json`, imported backgrounds 
 
 ## Known limits
 
-- The background and the in-client pet are session-scoped; a client restart requires applying again.
+- The background and the in-client pet are session-scoped. As long as a client is started with its CDP port (through PrismDesk's Connect button), PrismDesk re-injects automatically within a few seconds of the client reappearing; otherwise press Apply again. The remembered position is restored from the configuration either way.
 - A client update can change the DOM; PrismDesk stops adapting unknown structures instead of injecting blindly.
 - Typing, code copying, long scrolling, every modal, and upgrade/uninstall on a clean machine remain manual release checks; the matrix is in the test record.
 - The pet size, mirror, and visibility are shared by both clients; only the position is remembered per client.

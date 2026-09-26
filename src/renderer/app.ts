@@ -1,4 +1,5 @@
 declare global { interface Window { prism:any } }
+import { defaultPetAppearance } from '../shared/in-app-pet.js';
 let theme:any; const $=(id:string)=>document.getElementById(id)!;
 const fields=['brightness','opacity','blur','speed'] as const;
 const petControls=['size'] as const;
@@ -30,11 +31,20 @@ function render(){
   $('modeHint').textContent=theme.petMode==='desktop'?'当前使用独立的 Windows 桌面宠物窗口；客户端内不再注入宠物。':'当前把宠物注入客户端窗口内部，随客户端一起显示；重载后会自动恢复。';
 }
 function notify(s:string,error=false){$('notice').textContent=s;$('notice').style.color=error?'#fca5a5':'#8ee0c2'}
+// The same record the main process appends to injection.log: which page was driven, what the payload
+// returned and whether the pet was painted. It is polled instead of pushed so a stuck control loop
+// still shows the last thing that happened.
+async function logs(){
+  try{
+    const entries=await window.prism.injectionLog();
+    $('diagLog').textContent=entries.length?entries.map((e:any)=>`${new Date(e.at).toLocaleTimeString()} [${e.target}] ${e.event} ${e.detail===undefined?'':JSON.stringify(e.detail)}`.trimEnd()).join('\n'):'尚无注入记录';
+  }catch(e){$('diagLog').textContent=String((e as Error).message)}
+}
 async function statuses(){const list=await window.prism.statuses();$('targets').innerHTML=list.map((s:any)=>`<article class="card"><div class="card-head"><div><h3>${s.name}</h3><div class="meta">${s.version||'—'} ${s.pet?'· 悬浮宠物':''} · ${s.installPath||s.detail}</div></div><span class="pill ${s.status}">${s.detail}</span></div><div class="actions"><button data-connect="${s.id}" ${!s.installed||s.connected?'disabled':''}>连接</button><button data-apply="${s.id}" ${!s.connected?'disabled':''}>应用</button><button data-restore="${s.id}" ${!s.connected?'disabled':''}>恢复默认</button></div></article>`).join('');document.querySelectorAll('[data-connect]').forEach(b=>(b as HTMLButtonElement).onclick=()=>act(()=>window.prism.launch((b as HTMLElement).dataset.connect),'已连接'));document.querySelectorAll('[data-apply]').forEach(b=>(b as HTMLButtonElement).onclick=()=>act(()=>window.prism.apply((b as HTMLElement).dataset.apply,read()),'已应用：背景与悬浮宠物'));document.querySelectorAll('[data-restore]').forEach(b=>(b as HTMLButtonElement).onclick=()=>act(()=>window.prism.restore((b as HTMLElement).dataset.restore),'已恢复默认（背景、宠物与面板）'))}
 async function act(fn:()=>Promise<any>,ok:string){try{await fn();notify(ok);await statuses()}catch(e){notify((e as Error).message,true)}}
 async function init(){
   theme=await window.prism.load();
-  if(!theme.pet)theme.pet={size:128,mirror:false,visible:true};
+  if(!theme.pet)theme.pet={...defaultPetAppearance};
   render();await statuses();
   for(const k of fields)$(`${k}`).addEventListener('input',()=>{read();render()});
   for(const k of petControls)$(`${k}`).addEventListener('input',()=>{read();render()});
@@ -45,10 +55,11 @@ async function init(){
   document.querySelectorAll('[data-mode]').forEach(b=>(b as HTMLButtonElement).onclick=async()=>{const mode=(b as HTMLElement).dataset.mode;if(mode===theme.petMode)return;try{theme=await window.prism.petMode(mode);render();notify(mode==='desktop'?'已切换为 Windows 桌面宠物':'已切换为客户端内悬浮宠物')}catch(e){notify((e as Error).message,true)}});
   $('pick').onclick=async()=>{const p=await window.prism.image();if(p){theme.kind='image';theme.imagePath=p;render()}};
   $('petPick').onclick=async()=>{try{const imported=await window.prism.petImage();if(imported){theme.pet.imagePath=imported.path;render();notify(imported.info.hasAlpha?'宠物图片已导入（检测到透明通道）':'宠物图片已导入（未检测到透明通道）')}}catch(e){notify((e as Error).message,true)}};
-  $('petReset').onclick=async()=>{theme.pet={size:128,mirror:false,visible:true};render();await act(()=>window.prism.save(read()),'宠物形象已恢复默认')};
+  $('petReset').onclick=async()=>{theme.pet={...defaultPetAppearance};render();await act(()=>window.prism.save(read()),'宠物形象已恢复默认')};
   $('importTheme').onclick=async()=>{const t=await window.prism.importTheme();if(t){theme=t;render();notify('主题已校验并导入')}};
   $('save').onclick=()=>act(()=>window.prism.save(read()),'设置已保存');
   $('refresh').onclick=statuses;
   window.prism.onThemeChanged((next:any)=>{theme=next;render();notify('客户端内面板已更新设置')});
 }
+void logs();setInterval(()=>{void logs()},2500);
 init().catch(e=>notify(e.message,true));

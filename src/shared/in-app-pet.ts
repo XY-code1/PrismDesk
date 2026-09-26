@@ -1,4 +1,5 @@
 import type { PetAppearance, TargetId, Theme } from './types.js';
+import { inAppSettingsCss } from './in-app-settings.js';
 
 // ---------------------------------------------------------------------------
 // Shared rules for the in-client floating pet.
@@ -28,25 +29,50 @@ export const inAppPetIds = {
   global:'__prismdeskInApp',
 } as const;
 
-// The pet stays small on purpose: it is an in-window widget, not a second window.
-export const petSizeRange = { min:48, max:256, step:8, default:128 } as const;
+// The pet stays small on purpose: it is an in-window widget, not a second window. The default sits
+// inside the 40-60 px band the in-client widget is designed for; the range only leaves room for a
+// user who wants a bigger character, and the step keeps the slider landing on whole pixels.
+export const petSizeRange = { min:40, max:160, step:4, default:48 } as const;
 export const petResizeHandle = 18;
 export const petDragThreshold = 5;
 export const petAlphaThreshold = 12;
 export const petImageLimit = 4 * 1024 * 1024;
 
-export const defaultPetAppearance:PetAppearance = { size:petSizeRange.default, mirror:false, visible:true };
+// The built-in character is painted inside an ellipse, and the payload hit-tests the pointer against
+// the same ellipse (isDefaultCharacterHit). Handing that exact shape to CSS (clip-path) keeps the two
+// honest: the browser then routes a press on a transparent pixel past the character instead of to it,
+// so the margin falls through to the page exactly where the hit test says it is not the pet. The two
+// are tied together by a test rather than by a shared constant, because every function in RUNTIME has
+// to stay self-contained enough to be inlined into the page on its own.
+export const characterEllipse = { radiusX:0.33, radiusY:0.37 } as const;
+export const characterClip = `ellipse(${characterEllipse.radiusX * 100}% ${characterEllipse.radiusY * 100}% at 50% 50%)`;
 
-const appearanceKeys = new Set(['size','mirror','visible','imagePath']);
+// The payload's protocol version. Main replaces a page's payload when this does not match, so a
+// client that is still running the previous build picks up a payload change without being restarted.
+// v8: the character is clipped to its silhouette, so the transparent margin falls through to the page
+// again while a press on the silhouette still never reaches a client window-drag region; the pet host
+// also stacks above the panel host, so the pet can reopen and close the drawer it lives on top of.
+// v7 made the character a real hit target (pointer-events:auto + -webkit-app-region:no-drag) and made
+// a drag end only when the pointer leaves the page, not when it leaves the character. v1-v3 were
+// click-through, which let a press on the pet fall through to a client whose top chrome is an OS
+// window-drag region: the first mouse move then dragged the window and the gesture never reached the
+// payload, so the pet could not be dragged at all in its default corner.
+export const inAppPetPayloadVersion = 10;
+
+export const defaultPetAppearance:PetAppearance = { size:petSizeRange.default, opacity:1, mirror:false, visible:true };
+
+const appearanceKeys = new Set(['size','opacity','mirror','visible','imagePath']);
 
 export function validatePetAppearance(value:unknown):PetAppearance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('宠物形象配置必须是对象');
   const v = value as Record<string,unknown>;
   if (Object.keys(v).some(key => !appearanceKeys.has(key))) throw new Error('宠物形象包含未知字段');
   if (typeof v.size !== 'number' || !Number.isInteger(v.size) || v.size < petSizeRange.min || v.size > petSizeRange.max) throw new Error('宠物尺寸超出范围');
+  const opacity=v.opacity===undefined?1:v.opacity;
+  if (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0.2 || opacity > 1) throw new Error('宠物透明度超出范围');
   if (typeof v.mirror !== 'boolean' || typeof v.visible !== 'boolean') throw new Error('宠物镜像或显示设置无效');
   if (v.imagePath !== undefined && (typeof v.imagePath !== 'string' || !v.imagePath.trim() || /[\r\n]/.test(v.imagePath as string))) throw new Error('宠物图片路径无效');
-  return { size:v.size, mirror:v.mirror, visible:v.visible, imagePath:v.imagePath as string|undefined };
+  return { size:v.size, opacity, mirror:v.mirror, visible:v.visible, imagePath:v.imagePath as string|undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -60,10 +86,36 @@ export function clampBox(box:Box, viewport:Size):Box {
   return { size, x: Math.round(Math.min(Math.max(box.x, 0), limitX)), y: Math.round(Math.min(Math.max(box.y, 0), limitY)) };
 }
 
-export function defaultBox(viewport:Size, size:number):Box {
+// The default placement is the top-right corner of the client's content area, because that is the
+// corner a client's own chrome is least likely to own: the pet is a small widget, not a second
+// window, and it must not sit on the window controls. `topInset` is the height of whatever band the
+// payload found in that corner (see `topChromeInset`), so a client with a titlebar pushes the pet
+// below it while a client without chrome keeps the pet in the corner.
+export function defaultBox(viewport:Size, size:number, topInset=0):Box {
+  const margin = 12;
   const limitX = Math.max(0, Math.round(viewport.width) - size);
   const limitY = Math.max(0, Math.round(viewport.height) - size);
-  return { size, x: Math.round(Math.min(Math.max(limitX - 24, 0), limitX)), y: Math.round(Math.min(Math.max(limitY - 24, 0), limitY)) };
+  const inset = Math.max(0, Math.round(Number.isFinite(topInset) ? topInset : 0));
+  return { size, x: Math.round(Math.min(Math.max(limitX - margin, 0), limitX)), y: Math.round(Math.min(Math.max(inset + margin, 0), limitY)) };
+}
+
+// The payload hit-tests the top-right corner and hands the measurement to this rule. A band only
+// counts as chrome when it is anchored at the very top and is a small part of the window: the client
+// root also starts at the top, and treating that as a titlebar would push the pet to the bottom of
+// the window, which is the placement this rule exists to move away from.
+export function topChromeInset(hitTop:number, hitHeight:number, viewportHeight:number):number {
+  if (!Number.isFinite(hitTop) || !Number.isFinite(hitHeight)) return 0;
+  const top = Math.round(hitTop);
+  const height = Math.round(hitHeight);
+  if (height <= 0 || top < 0 || top > 8) return 0;
+  if (height > Math.max(24, Math.round(viewportHeight * 0.25))) return 0;
+  return Math.max(0, top + height);
+}
+
+// The resize grip is a square in the bottom-right corner of the box. A fixed 18 px grip is most of a
+// 40 px pet, so it is capped by both the theme's handle size and a third of the character.
+export function resizeHandleSize(size:number, max:number):number {
+  return Math.max(8, Math.min(Math.round(max), Math.round(size / 3)));
 }
 
 // Same silhouette as the Windows desktop pet: the character is painted inside an ellipse slightly
@@ -110,6 +162,8 @@ export function alphaHit(alpha:number, threshold:number):boolean {
 export const RUNTIME:ReadonlyArray<readonly [string, (...args:any[]) => any]> = [
   ['clampBox', clampBox],
   ['defaultBox', defaultBox],
+  ['topChromeInset', topChromeInset],
+  ['resizeHandleSize', resizeHandleSize],
   ['isDefaultCharacterHit', isDefaultCharacterHit],
   ['insideBox', insideBox],
   ['sampleCoords', sampleCoords],
@@ -163,15 +217,26 @@ export function characterDataUrl():string {
 // which is what lets a transparent pixel fall through to the page underneath.
 // ---------------------------------------------------------------------------
 
-const pageCss = '#prismdesk-pet-host{position:fixed!important;left:0!important;top:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;border:0!important;background:none!important;pointer-events:none!important;z-index:2147483000!important;display:block!important;visibility:visible!important;opacity:1!important;filter:none!important;transform:none!important;zoom:1!important}'
+const pageCss = '#prismdesk-pet-host{position:fixed!important;left:0!important;top:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;border:0!important;background:none!important;pointer-events:none!important;z-index:2147483001!important;display:block!important;visibility:visible!important;opacity:1!important;filter:none!important;transform:none!important;zoom:1!important}'
   + '#prismdesk-pet-host.pd-hidden{display:none!important}'
-  + '#prismdesk-panel-host{position:fixed!important;left:0!important;top:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;border:0!important;background:none!important;pointer-events:none!important;z-index:2147483001!important;display:block!important;visibility:visible!important;opacity:1!important;filter:none!important;transform:none!important;zoom:1!important}';
+  + '#prismdesk-panel-host{position:fixed!important;left:0!important;top:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;border:0!important;background:none!important;pointer-events:none!important;z-index:2147483000!important;display:block!important;visibility:visible!important;opacity:1!important;filter:none!important;transform:none!important;zoom:1!important}';
 
+// The character itself is a hit target (pointer-events:auto). A fully click-through layer is not an
+// option for it: these clients put their own chrome behind the pet, that chrome is often an OS
+// window-drag region (Electron's -webkit-app-region), and a press which falls through to it turns
+// the first mouse move into a window drag, so the gesture never reaches the payload. The built-in
+// character is therefore clipped to the same ellipse the hit test uses: the browser routes the
+// silhouette to the pet and the transparent margin past it to the page. Imported artwork keeps the
+// whole box as its hit area (see pd-solid below), and no-drag keeps the pet usable even if a client
+// later nests its overlay inside a drag region.
 const petCss = ':host{display:block}'
   + '.pd-anchor{position:absolute;left:0;top:0;will-change:transform}'
   + '.pd-flip{display:block;transform-origin:50% 60%}'
   + '.pd-flip.pd-mirror{transform:scaleX(-1)}'
-  + '.pd-art{display:block;max-width:none;max-height:none;border:0;background:none;animation:pd-bob 3.4s ease-in-out infinite;transform-origin:50% 60%;pointer-events:none;user-select:none;-webkit-user-drag:none}'
+  + '.pd-art{display:block;max-width:none;max-height:none;border:0;background:none;animation:pd-bob 3.4s ease-in-out infinite;transform-origin:50% 60%;pointer-events:auto;-webkit-app-region:no-drag;user-select:none;-webkit-user-drag:none}'
+  + '.pd-art{clip-path:' + characterClip + '}'
+  + '.pd-art.pd-solid{clip-path:none}'
+  + ':host(.pd-panel-open) .pd-art{pointer-events:none}'
   + ':host(.pd-paused) .pd-art{animation-play-state:paused}'
   + ':host(.pd-dragging) .pd-art{animation-play-state:paused}'
   + '.pd-grip{position:absolute;width:18px;height:18px;border-radius:5px;background:rgba(124,108,255,.92);box-shadow:inset 0 0 0 1px rgba(255,255,255,.65);opacity:0;transition:opacity .12s ease;pointer-events:none}'
@@ -179,31 +244,7 @@ const petCss = ':host{display:block}'
   + '@keyframes pd-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}'
   + '@media (prefers-reduced-motion:reduce){.pd-art{animation:none!important}}';
 
-const panelCss = ':host{display:block}'
-  + '.pd-panel{position:absolute;top:0;right:0;width:min(340px,100%);height:100%;display:none;flex-direction:column;gap:12px;padding:16px;overflow-y:auto;overflow-x:hidden;pointer-events:auto;background:rgba(9,11,18,.94);border-left:1px solid rgba(255,255,255,.08);box-shadow:-18px 0 44px rgba(0,0,0,.4);color:#eef1f8;font:400 13px/1.45 Segoe UI,system-ui,sans-serif;text-align:left;direction:ltr;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}'
-  + '.pd-panel.pd-open{display:flex}'
-  + '.pd-panel *{box-sizing:border-box;font:inherit;color:inherit;letter-spacing:normal;text-transform:none;max-width:none}'
-  + '.pd-head{display:flex;align-items:center;justify-content:space-between;gap:10px}'
-  + '.pd-head strong{font-size:15px;font-weight:700;letter-spacing:.02em}'
-  + '.pd-head small{display:block;margin-top:2px;color:#8b93a8;font-size:11px}'
-  + '.pd-close{background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:8px;color:inherit;padding:4px 10px;cursor:pointer;font:inherit}'
-  + '.pd-section{display:flex;flex-direction:column;gap:8px;border-top:1px solid rgba(255,255,255,.07);padding-top:12px}'
-  + '.pd-section>b{font-size:11px;letter-spacing:.16em;color:#8d7cff}'
-  + '.pd-row{display:flex;align-items:center;justify-content:space-between;gap:9px}'
-  + '.pd-seg{display:flex;flex-wrap:wrap;gap:6px}'
-  + '.pd-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;color:inherit;padding:7px 10px;cursor:pointer;font:inherit}'
-  + '.pd-btn.pd-on{background:#3a3462;border-color:#5b4ede;color:#ded9ff}'
-  + '.pd-btn.pd-primary{background:#7c6cff;border-color:transparent;font-weight:600}'
-  + '.pd-btn.pd-danger{background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5}'
-  + '.pd-field{display:flex;flex-direction:column;gap:6px;color:#a8afc0}'
-  + '.pd-field output{float:right;color:#79839a}'
-  + '.pd-field input[type=range]{width:100%;accent-color:#7c6cff}'
-  + '.pd-check{display:flex;align-items:center;gap:7px}'
-  + '.pd-panel select{background:#1b1f2c;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;font:inherit;color:inherit}'
-  + '.pd-panel img.pd-preview{align-self:center;width:104px;height:104px;object-fit:contain;border-radius:10px;background-color:#141824;background-image:linear-gradient(45deg,rgba(255,255,255,.07) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.07) 75%),linear-gradient(45deg,rgba(255,255,255,.07) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.07) 75%);background-size:16px 16px;background-position:0 0,8px 8px}'
-  + '.pd-hint{color:#7d8698;font-size:11px;line-height:1.5;word-break:break-all}';
-
-export const inAppPetCss = { page:pageCss, pet:petCss, panel:panelCss };
+export const inAppPetCss = { page:pageCss, pet:petCss, panel:inAppSettingsCss };
 
 // ---------------------------------------------------------------------------
 // Local artwork validation. Only the file type and the size are checked; the file never leaves
@@ -256,21 +297,27 @@ export type InAppConfig = {
   // Managed local artwork as a data URL, or null for the built-in character.
   petImage:string|null;
   // Remembered position of this client's pet, or null on the first run.
-  box:{ x:number; y:number } | null;
+  box:Box | null;
+  wallpaperEngine:{ installed:boolean; running:boolean; experimental:true; path?:string|null };
+  notice?:{ kind:'info'|'error'; text:string; nonce:number }|null;
 };
 
 export type InAppRequest =
   | { type:'save'; theme:unknown }
   | { type:'move'; x:number; y:number }
-  | { type:'resize'; size:number }
+  | { type:'resize'; x:number; y:number; size:number }
   | { type:'import-background' }
   | { type:'import-pet' }
   | { type:'restore-pet' }
+  | { type:'restore-background' }
+  | { type:'wallpaper-open' }
+  | { type:'wallpaper-folder' }
+  | { type:'quit-app' }
   | { type:'restore' };
 
 export type InAppRequestType = InAppRequest['type'];
 
-const requestTypes = new Set<string>(['save','move','resize','import-pet','import-background','restore-pet','restore']);
+const requestTypes = new Set<string>(['save','move','resize','import-pet','import-background','restore-pet','restore-background','wallpaper-open','wallpaper-folder','quit-app','restore']);
 
 // The page is not trusted more than the rest of the renderer: every drained request is validated
 // here, before it reaches the store or the memory file.
@@ -288,8 +335,8 @@ export function parseInAppRequests(value:unknown):InAppRequest[] {
       out.push({ type:'move', x:v.x as number, y:v.y as number }); continue;
     }
     if (type === 'resize') {
-      if (typeof v.size !== 'number' || !Number.isFinite(v.size)) continue;
-      out.push({ type:'resize', size:clampSize(v.size as number, petSizeRange.min, petSizeRange.max) }); continue;
+      if (!Number.isInteger(v.x) || !Number.isInteger(v.y) || typeof v.size !== 'number' || !Number.isFinite(v.size)) continue;
+      out.push({ type:'resize', x:v.x as number, y:v.y as number, size:clampSize(v.size as number, petSizeRange.min, petSizeRange.max) }); continue;
     }
     out.push({ type:type as InAppRequestType } as InAppRequest);
   }

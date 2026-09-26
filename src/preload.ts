@@ -12,5 +12,10 @@ contextBridge.exposeInMainWorld('prism',{
   // never reach a client page without passing the type and size checks.
   petImage:()=>ipcRenderer.invoke('pet:image'),
   petMode:(mode:string)=>ipcRenderer.invoke('pet:mode',mode),
+  petEnsure:(id:string)=>ipcRenderer.invoke('pet:ensure',id),
+  // The injection log is the same record the main process appends to injection.log, so the
+  // settings window can show what the clients were actually told without leaving the app.
+  injectionLog:()=>ipcRenderer.invoke('inject:log'),
+  quit:()=>ipcRenderer.invoke('app:quit'),
   onThemeChanged:(handler:(theme:unknown)=>void)=>ipcRenderer.on('theme:changed',(_event,theme)=>handler(theme)),
 });

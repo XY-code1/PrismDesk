@@ -49,27 +49,38 @@ The preload exposes a narrow IPC API. Background layers use a fixed ID, `pointer
 
 1. a page-level `<style id="prismdesk-pet-style">` that pins two full-viewport host elements with
    `!important` and resets inherited geometry (`zoom`, `transform`, `filter`, `visibility`);
-2. `#prismdesk-pet-host`: a click-through layer whose shadow root holds the character and the resize
-   grip;
-3. `#prismdesk-panel-host`: a click-through layer whose shadow root holds the side panel.
+2. `#prismdesk-pet-host`, one z-index above the panel host: a layer whose shadow root holds the
+   character and the resize grip. The character is the only node in the payload that takes the
+   pointer;
+3. `#prismdesk-panel-host`: a click-through layer whose shadow root holds the side panel the
+   character opens and closes.
 
 Both hosts carry `data-prismdesk-pet="host|panel|style"`. A payload always starts by calling the
 previous instance's `destroy()` and by removing every node that carries that marker, so applying four
 times in a row still leaves exactly one pet, one panel and one style element. Shadow roots are used
 in both directions: client CSS cannot leak into the panel, and the panel cannot leak out.
 
-### Why the pet does not use DOM hit testing
+### How the pet takes the pointer
 
 A `<img>` node receives pointer events over its whole box, including fully transparent pixels, so a
-DOM-based pet would swallow clicks meant for the page underneath. Instead:
+DOM-based pet would swallow clicks meant for the page underneath. Making the whole layer click-through
+is not an option either: these clients put their own chrome behind the pet, that chrome is often an OS
+window-drag region (Electron's `-webkit-app-region`), and a press that falls through turns the first
+mouse move into a window drag before the gesture ever reaches the payload. The payload therefore makes
+the character a real hit target and clips it to its own silhouette:
 
-- every node inside the pet layer keeps `pointer-events:none`, and
-- the payload hit-tests the pointer itself in a `window` capture listener on `pointerdown`.
+- the artwork carries `pointer-events:auto` plus `-webkit-app-region:no-drag`, and a `clip-path`
+  (`characterClip`) cuts it to the exact ellipse the pure hit test uses - imported artwork keeps its
+  whole box (`.pd-solid`), because its alpha is sampled instead;
+- a test ties the clip to `isDefaultCharacterHit()`, so the browser routes the silhouette to the pet
+  and the transparent margin past it to the page;
+- the payload still hit-tests geometry itself in a `window` capture listener for the drag, the resize
+  grip and the panel toggle, and it samples an imported image through a size×size canvas (`drawImage`
+  + a 1-pixel `getImageData`) so alpha decides; the mirrored case is undone in `sampleCoords()`.
 
-The hit test uses the tested pure rules: the built-in character uses its ellipse silhouette, an
-imported PNG/WebP/GIF is sampled through a size×size canvas (`drawImage` + a 1-pixel `getImageData`)
-so alpha decides, and the mirrored case is undone in `sampleCoords()`. A press that lands outside the
-silhouette is not consumed at all and reaches the page unchanged.
+A press that lands outside the silhouette is not consumed at all and reaches the page unchanged. The
+default box is the top-right corner, `12 px` in, below whatever chrome band the payload measured there
+(`topChromeInset`) - the corner a client's own window controls are least likely to own.
 
 ### Input safety
 
@@ -77,8 +88,10 @@ While a gesture belongs to the pet, the payload sets a suppression flag and bloc
 `mousedown`/`mouseup`/`click`/`dblclick`/`auxclick`/`contextmenu`/`selectstart`/`dragstart` in the
 same window-capture listener, clearing the flag on the next press and shortly after the release. That
 is what keeps a pet click from moving the caret, from selecting text, or from closing a client popup
-through an outside-click handler. `wheel` is never intercepted, so scrolling always reaches the page;
-keyboard input is never touched, and the payload adds no listener to any page node at all.
+through an outside-click handler. A wheel that lands on the character is forwarded to the nearest
+scrollable ancestor underneath it (`scrollUnder`), so the pet is not a dead spot for scrolling and
+every other wheel event is untouched; keyboard input is never touched, and the payload adds no listener
+to any page node at all.
 A press that travels past the 5 px threshold is a move and can never become an activation, so dragging
 the pet cannot open the panel by accident.
 
@@ -106,11 +119,29 @@ page list is re-read from `/json/list` every tick, so a client that switches pag
 window converges on the same state without a manual re-apply. The pet image data URL is only sent when
 it changed, so the steady-state payload stays small.
 
+Main also reconciles the loop without a user action: `startInAppSupervisor()` re-runs `ensureInApp()`
+for both clients every 5 s, and `ensureInApp()` does one cheap HTTP probe of the client's loopback port
+before it starts a loop, so a client that is closed costs nothing and a client that reappears gets its
+pet back within one interval. `applyPetMode('desktop')` stops the loops and calls
+`removeInjectedPet()`, so the desktop window never coexists with an injected pet. The sync probe also
+compares the payload's `inAppPetPayloadVersion`: a page still running the previous build reports
+`present:false` and is re-injected on the next tick, so a payload change lands without restarting the
+client.
+
 `buildRemovePetScript()` removes only the pet, the panel, its style and its listeners (used when the
 user switches to the Windows desktop pet). `buildRemoveAllScript()` additionally calls the
 background's own `__prismdeskCleanup`, removes `#prismdesk-background` and `#prismdesk-style`, and
 clears the document marker - that is what "restore default" means, for both the settings window and
 the in-client panel.
+
+### Diagnostics
+
+The main process keeps a bounded injection log (`injectionLog()`, also appended to
+`userData/injection.log`, both capped) that records which page was driven, when a loop started or
+stopped, each page request, every payload injection and failed probe, and - only when it changes - the
+payload's own answer to "is the pet painted, where, and what sits underneath it". The settings window
+shows the last 80 entries in a collapsed 注入日志 section and polls it every 2.5 s, so a stuck loop
+still shows the last thing that happened instead of nothing.
 
 ### Per-client memory
 
