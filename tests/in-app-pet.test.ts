@@ -416,6 +416,13 @@ test('public destroy is idempotent and removes every PrismDesk surface',()=>{
   assert.equal(harness.win.listeners.length,0);
 });
 
+test('heartbeat cleanup is armed and every sync refreshes it',()=>{
+  const harness=createHarness();const script=buildInAppScript(harness.config());const sync=buildInAppSyncScript(harness.config(),false);
+  assert.match(script,/Date\.now\(\)-lastHeartbeat>12000/);
+  assert.match(script,/clearInterval\(heartbeatTimer\)/);
+  assert.match(sync,/__PRISMDESK__\.heartbeat/);
+});
+
 test('settings panel uses large glass layout with navigation',()=>{
   const harness=createHarness();inject(harness);const root=panelHost(harness).shadowRoot;
   assert.ok(root.querySelector('.pd-main'));assert.ok(root.querySelector('.pd-nav'));assert.ok(root.querySelector('.pd-content'));

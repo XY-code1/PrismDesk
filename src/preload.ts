@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('prism',{
   importTheme:()=>ipcRenderer.invoke('theme:import'),
   statuses:()=>ipcRenderer.invoke('targets:status'),
   launch:(id:string)=>ipcRenderer.invoke('target:launch',id),
+  restartCodex:()=>ipcRenderer.invoke('target:restart-codex'),
   apply:(id:string,v:unknown)=>ipcRenderer.invoke('target:apply',id,v),
   restore:(id:string)=>ipcRenderer.invoke('target:restore',id),
   // Pet artwork is imported through the same validated store as the background, so a file can

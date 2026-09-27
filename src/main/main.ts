@@ -6,6 +6,7 @@ import { PetWindow } from './pet.js';
 import * as adapters from './adapters.js';
 import { InAppPetMemoryStore } from './in-app-state.js';
 import { validateTheme, type TargetId, type Theme } from '../shared/types.js';
+import { finishQuit } from './quit.js';
 let win:BrowserWindow|undefined; let store:Store; let pet:PetWindow|undefined; let tray:Tray|undefined; let quitting=false; let allowQuit=false; let parked=false; let closeNoticeShown=false;
 // A freshly shown window can be minimised for us a moment after the show request on this desktop
 // (reproduced with a bare Electron window that has nothing to do with PrismDesk, about two seconds
@@ -27,7 +28,7 @@ function hideSettings(){const target=win;if(!target||target.isDestroyed())return
 // settings window, always restore a minimised one, and focus an already open one.
 async function showSettings(){const created=settingsWindow();parked=false;if(created.isMinimized())created.restore();if(created.webContents.isLoading())await new Promise<void>(resolve=>created.webContents.once('did-finish-load',()=>resolve()));strayMinimizeUntil=Date.now()+strayMinimizeWindow;created.show();created.focus()}
 function createTray(){const icon=nativeImage.createFromPath(join(app.getAppPath(),'dist/assets/tray.png'));if(icon.isEmpty())throw new Error('缺少托盘图标，请先执行 npm run build');tray=new Tray(icon);tray.setToolTip('PrismDesk 桌宠');tray.setContextMenu(Menu.buildFromTemplate([{label:'打开设置',click:()=>{void showSettings()}},{type:'separator'},{label:'完全退出 PrismDesk',click:()=>{void quitApp()}}]));tray.on('double-click',()=>{void showSettings()})}
-async function quitApp(){if(quitting)return;quitting=true;adapters.stopInAppSupervisor();try{await Promise.race([adapters.cleanupAllInjected(),new Promise(resolve=>setTimeout(resolve,5000))])}finally{adapters.stopAllLoops();pet?.destroy();pet=undefined;tray?.destroy();tray=undefined;allowQuit=true;app.quit()}}
+async function quitApp(){if(quitting)return;quitting=true;adapters.stopInAppSupervisor();await finishQuit(()=>adapters.cleanupAllInjected(),()=>{adapters.stopAllLoops();pet?.destroy();pet=undefined;for(const window of BrowserWindow.getAllWindows())if(!window.isDestroyed())window.destroy();win=undefined;tray?.destroy();tray=undefined;allowQuit=true;app.quit()})}
 // Native pickers are created here, not in the adapter, so the dialog is always owned by the
 // PrismDesk settings window - even when the request came from a pet panel inside a client.
 async function pickFile(kind:'pet'|'background'){const filters=kind==='pet'?[{name:'Pet image',extensions:['png','webp','gif']}]:[{name:'Images',extensions:['png','jpg','jpeg','webp']}];const r=await dialog.showOpenDialog({properties:['openFile'],filters});return r.canceled?null:r.filePaths[0]}
@@ -43,6 +44,7 @@ ipcMain.handle('theme:image',async()=>{const r=await dialog.showOpenDialog(setti
 ipcMain.handle('theme:import',async()=>{const r=await dialog.showOpenDialog(settingsWindow(),{properties:['openFile'],filters:[{name:'PrismDesk theme',extensions:['json']}]});return r.canceled?null:store.importTheme(r.filePaths[0])});
 ipcMain.handle('targets:status',()=>Promise.all((['codex','workbuddy'] as TargetId[]).map(adapters.status)));
 ipcMain.handle('target:launch',(_,id:TargetId)=>adapters.launch(id));
+ipcMain.handle('target:restart-codex',async()=>{const result=await dialog.showMessageBox({type:'warning',buttons:['取消','重启并连接'],defaultId:0,cancelId:0,title:'重启 Codex 并连接',message:'重启会关闭当前 Codex',detail:'请先保存正在执行的任务。确认后 PrismDesk 只会关闭已验证的 Codex 进程，并使用本机回环调试端口 9222 重新启动。'});if(result.response!==1)return {canceled:true};return adapters.restartAndConnectCodex()});
 ipcMain.handle('target:apply',async(_,id:TargetId,v:unknown)=>adapters.apply(id,await store.save(validateTheme(v))));
 ipcMain.handle('pet:image',async()=>{const r=await dialog.showOpenDialog(settingsWindow(),{properties:['openFile'],filters:[{name:'Pet image (PNG/WebP/GIF)',extensions:['png','webp','gif']}]});return r.canceled?null:store.importPetImage(r.filePaths[0])});
 ipcMain.handle('pet:mode',(_,mode:unknown)=>applyPetMode(mode));
