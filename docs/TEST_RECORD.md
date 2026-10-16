@@ -278,3 +278,165 @@ from this session. Please confirm by hand:
 
 Also still manual: dragging the pet across two real monitors, and unplugging a monitor while the pet
 is on it (the clamp is unit-tested for both, but not exercised on two physical displays here).
+# In-client floating pet - 2026-09-26 (feat/in-app-pet)
+
+## Automated
+
+```text
+npm run check  -> PASS
+npm test       -> PASS (49/49: 11 core, 13 desktop-pet, 2 adapter/CDP, 23 in-client pet)
+npm run build  -> PASS (main/preload/renderer/pet bundles plus tray icons)
+```
+
+The 23 new tests live in `tests/in-app-pet.test.ts` and cover:
+
+- pet appearance schema (size range, booleans, unknown fields, empty artwork path) and the theme v2
+  schema including the migration of a v1 file and the rejection of an unknown pet mode;
+- box geometry: default bottom-right placement, clamping inside the client window, a window smaller
+  than the pet;
+- hit testing: the built-in character silhouette versus its transparent margin, alpha threshold,
+  drag threshold;
+- mirrored sampling and resize-handle geometry, size clamping;
+- artwork validation by content: PNG (with and without alpha), WebP (VP8X/VP8L flags), GIF, a JPEG,
+  an SVG, an extension/content mismatch, an oversized file and an empty buffer;
+- the managed artwork copy: `pet-assets/pet.<ext>`, data URL generation, replacement on re-import and
+  removal on reset;
+- the inlined runtime: every function of `RUNTIME` is present *and* a fresh `Function` built from the
+  inlined source returns the same answers as the imported functions, so the page copy cannot drift
+  from the tested copy;
+- request validation (`parseInAppRequests`): unknown types dropped, non-integer or absurd coordinates
+  dropped, resize clamped into range;
+- per-client memory: `in-app-pet.json` round-trip, tampered file falls back to empty, per-client
+  independence;
+- the payload itself, executed against a model document: one pet and one panel after four injections,
+  click toggles the panel, the panel's close button works, a click on the page closes the panel
+  without stealing the click, a press on the character is consumed while a press elsewhere is not,
+  `wheel`/`keydown`/`input` always reach the page, the payload adds no listener to page nodes,
+  transparent artwork pixels fall through, the mirrored sample coordinate is flipped, drag clamps to
+  the window and queues one `move`, the grip queues one `resize`, a slider previews locally and is
+  debounced into one `save`, and restore removes every node, style, marker and listener;
+- the panel's own state: the 尺寸 control resizes the character on the spot instead of waiting for
+  main to echo the stored theme back, and a state push that main queued before it had stored the
+  edit never snaps a control the user is still holding back to the value it replaced;
+- recovery: a fresh page reports `present:false` and receives exactly one pet and one panel again.
+
+Automated coverage limits, stated plainly: the model document is not a browser. It reproduces window
+capture ordering, `stopImmediatePropagation`, shadow-root retargeting and the payload's own listeners,
+but it does not prove anything about a real client's DOM, its CSS, its scroll containers, its modals
+or its clipboard. That is what the manual matrix below is for.
+
+## Environment at the time of writing
+
+Both clients are installed on the development machine - Codex desktop `26.917.9434.0` (Store package
+`OpenAI.Codex_26.917.9434.0_x64__2p2nqsd0c76g0`) and WorkBuddy `5.5.3.0`
+(`%LOCALAPPDATA%\Programs\WorkBuddy\WorkBuddy.exe`) - but neither was running with a loopback CDP port
+(`Get-NetTCPConnection -LocalPort 9222,9223` returned 0 listeners) and no desktop session was driven
+while this branch was written. The matrix below is therefore a procedure with results still pending;
+it must be executed with the clients running before any release is tagged.
+
+## Manual matrix - Codex 26.917.9434.0 / WorkBuddy 5.5.3.0
+
+Setup per client: start the client through PrismDesk's 连接 button (or `Start-Codex-for-PrismDesk.cmd`)
+so that the loopback CDP port is owned by that client, press 应用 in PrismDesk, and confirm the status
+pill reads 已应用 · 悬浮宠物.
+
+| # | Check | How to verify | Codex | WorkBuddy |
+|---|---|---|---|---|
+| 1 | Apply is idempotent | After 应用, inspect the renderer: exactly 1 `#prismdesk-pet-host`, 1 `#prismdesk-panel-host`, 1 `#prismdesk-pet-style` | PENDING | PENDING |
+| 2 | Drag | Press the character, drag around the window, release: the pet follows without lag, never leaves the window, and stays where it was put after restarting PrismDesk | PENDING | PENDING |
+| 3 | Scale | Drag the bottom-right grip, then drag the panel's 尺寸 slider: the character scales between 40 and 160 px immediately in both directions, with no snap-back while a control is still held | PENDING | PENDING |
+| 4 | Click toggles the panel | Single click opens the side panel, a second click closes it, and the page content behind it is unchanged | PENDING | PENDING |
+| 5 | Transparent area does not intercept | Click through the transparent margin onto a chat input and onto a toolbar button: both react normally | PENDING | PENDING |
+| 6 | Input | With the pet visible, type a short probe message, then clear it: the text appears exactly once, no caret jump, nothing sent | PENDING | PENDING |
+| 7 | Copy | Select text in a message or code block, Ctrl+C, paste into Notepad: the content matches the selection | PENDING | PENDING |
+| 8 | Scroll | Wheel over the character and over the message list: the character forwards the wheel to the scroller underneath it, so scrolling is smooth and never jumps or stalls | PENDING | PENDING |
+| 9 | Popups | Open a client menu/dialog, then click the pet and click outside: no dialog closes because of the pet, and outside clicks still close what they should | PENDING | PENDING |
+| 10 | Page switch | Move between views/routes: exactly one pet remains, at the remembered position | PENDING | PENDING |
+| 11 | Reload | Reload the renderer (Ctrl+R or a client-triggered reload): the pet returns within about two seconds with one panel | PENDING | PENDING |
+| 12 | Re-apply | Press 应用 three times, then count the nodes again | PENDING | PENDING |
+| 13 | Pet appearance | Import a transparent PNG, then a WebP, then a GIF: the preview and the in-client pet update, mirror/size/hide take effect, and the files are only the managed copies under `%APPDATA%\PrismDesk\themes\pet-assets` | PENDING | PENDING |
+| 14 | Restore default | Press 恢复默认 in the in-client panel and in PrismDesk: background, pet, panel, styles and listeners are gone; repeat the hit-test sweep from the 2026-09-26 background pass and compare with the pre-apply baseline | PENDING | PENDING |
+| 15 | Mode switch | Switch to the Windows desktop pet: the injected pet and panel disappear and the desktop window appears. Switch back: the pet is injected again | PENDING | PENDING |
+| 16 | Exit | Quit PrismDesk from the tray: no pet, panel, style or listener remains in either client | PENDING | PENDING |
+| 17 | Default corner | With no remembered position, the pet appears in the top-right corner below the client's own titlebar band, not over the window controls, and a drag pins that position across restarts | PENDING | PENDING |
+| 18 | Auto re-inject | Quit and relaunch the client through 连接, or reload the renderer: the pet returns within a few seconds without pressing 应用, at the remembered position | PENDING | PENDING |
+| 19 | Diagnostics | Open 注入日志 in the settings window: it lists the driven page, the injection result and the payload's painted state, and contains no chat text | PENDING | PENDING |
+
+Recording rules: note the client version, the exact step, the observed result and a privacy-safe
+screenshot. Mask sidebars and any list of conversations, and never capture chat text, account
+identifiers, credentials or a user background image.
+
+# In-client floating pet hardening - 2026-09-27 (payload v8)
+
+## Automated
+
+```text
+npm run check  -> PASS
+npm test       -> PASS (58/58: 11 core, 13 desktop-pet, 2 adapter/CDP, 32 in-client pet)
+npm run build  -> PASS (main/preload/renderer/pet bundles plus tray icons)
+```
+
+The in-client suite grew from 23 to 32 tests. The new and changed ones cover:
+
+- schema and range: the pet range is 40-160 px in steps of 4 with a 48 px default, and the settings
+  window's own slider advertises exactly that range (read from `index.html` and compared with the
+  schema);
+- placement: the default box is the top-right corner below a measured chrome band, and a band only
+  counts when it is anchored at the very top and stays under a quarter of the window; the payload never
+  measures that band from its own panel;
+- pointer ownership: the built-in character's `clip-path` is the same ellipse `isDefaultCharacterHit()`
+  uses, a press on the transparent margin falls through to the page, a press on the pet host itself
+  still drags the character, and a drag survives the pointer leaving the character but not the page;
+- stacking: the pet host stacks above the panel host, so a click on the character can reopen the panel
+  it lives on top of;
+- wheel forwarding: a wheel over the character is handed to the scroller underneath it while every
+  other wheel event is untouched;
+- the resize grip is capped at 18 px and a third of the character;
+- the panel size control previews locally without a round trip, and a state push never overrides a
+  control the user is still holding.
+
+## Live observation - WorkBuddy 5.5.3.0
+
+WorkBuddy was driven once through its loopback CDP port while the client was running. The probe
+reported:
+
+```text
+PASS  payload present in the real WorkBuddy renderer        {"version":7}
+FAIL  renderer is visible (a hidden one defers input acks)  {"hidden":true}
+PASS  payload version is the current one                    {"version":7}
+PASS  exactly one pet, one panel and one stylesheet         {"pets":1,"panels":1,"styles":1}
+PASS  pet is painted on screen                              {"onScreen":true}
+PASS  pet is 40-60 px                                       {"x":1294,"y":72,"size":48}
+PASS  pet is a real hit target, not click-through           {"pointer":"auto"}
+PASS  artwork decoded                                       {"complete":true,"natural":168}
+```
+
+That confirms injection, idempotency, painting and a 48 px top-right placement in a real client, for
+the payload build that was running (version 7). The run then stopped at the visibility check: WorkBuddy
+was minimised, so `Input.dispatchMouseEvent` was rejected and the interaction rows (drag, click, wheel,
+input, copy, popups) could not be executed. No interaction claim is made from this run.
+
+The current build ships payload version 8. The version bump is covered by the automated suite (main
+re-injects a page whose payload version does not match) but has not been observed in a real client.
+
+## Screenshots
+
+From the same session: the pet in the top-right corner of the WorkBuddy window, the pet over page
+content, and the PrismDesk settings window with the in-client pet controls.
+
+![WorkBuddy 5.5.3 in-client pet](screenshots/workbuddy-5.5.3-in-app-pet.png)
+![WorkBuddy 5.5.3 in-client pet over content](screenshots/workbuddy-5.5.3-in-app-pet-content.png)
+![PrismDesk settings with the in-client pet controls](screenshots/workbuddy-5.5.3-in-app-pet-panel.png)
+
+The captures contain client chrome and WorkBuddy's own promotional UI only; no conversation list,
+message text, account identifier or user background is present.
+
+## Not verified / limits of this pass
+
+- The interaction rows of the manual matrix (drag, click, wheel, input, copy, popups, page switch,
+  reload, re-apply, restore, mode switch, exit, default corner, auto re-inject, diagnostics) are still
+  PENDING for both clients.
+- The remembered position across a client restart, the supervisor's auto re-injection and sizes above
+  48 px were not exercised in a real client.
+- The live observation above was made against payload version 7; version 8 is covered by the automated
+  suite only.

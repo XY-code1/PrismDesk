@@ -6,6 +6,7 @@
   "main": "dist/main/main.js",
   "license": "MIT",
   "scripts": {
+    "start": "node scripts/build.mjs && electron .",
     "dev": "node scripts/build.mjs && electron .",
     "build": "node scripts/build.mjs",
     "check": "tsc --noEmit",

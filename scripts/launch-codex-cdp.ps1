@@ -1,4 +1,4 @@
-param([int]$Port = 9222)
+﻿param([int]$Port = 9222)
 $ErrorActionPreference = 'Stop'
 if ($Port -lt 1024 -or $Port -gt 65535) { throw 'Port must be 1024..65535' }
 $occupied = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
@@ -12,8 +12,17 @@ $aumid = "$($package.PackageFamilyName)!$($application[0].Id)"
 $exe = Join-Path $package.InstallLocation 'app\ChatGPT.exe'
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Validated Codex executable not found' }
 
-Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $exe } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-Start-Sleep -Seconds 2
+function Stop-VerifiedCodex {
+  @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $exe }) | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+  $stopDeadline = (Get-Date).AddSeconds(12)
+  do {
+    $remaining = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $exe })
+    if ($remaining.Count -eq 0) { return }
+    Start-Sleep -Milliseconds 200
+  } while ((Get-Date) -lt $stopDeadline)
+  throw 'Validated Codex process did not exit before restart'
+}
+Stop-VerifiedCodex
 
 if (-not ('PrismDesk.PackageLauncher' -as [type])) {
   Add-Type -TypeDefinition @'
@@ -27,7 +36,7 @@ namespace PrismDesk {
 }
 '@
 }
-[void][PrismDesk.PackageLauncher]::Launch($aumid, "--remote-debugging-port=$Port")
+[void][PrismDesk.PackageLauncher]::Launch($aumid, "--remote-debugging-address=127.0.0.1 --remote-debugging-port=$Port")
 
 $deadline = (Get-Date).AddSeconds(12)
 do {
@@ -39,9 +48,8 @@ do {
 } while ((Get-Date) -lt $deadline)
 
 # Some Store builds interpret package activation arguments as navigation. Retry the exact validated executable.
-Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $exe } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-Start-Sleep -Seconds 2
-Start-Process -FilePath $exe -ArgumentList "--remote-debugging-port=$Port"
+Stop-VerifiedCodex
+Start-Process -FilePath $exe -ArgumentList "--remote-debugging-address=127.0.0.1 --remote-debugging-port=$Port"
 $deadline = (Get-Date).AddSeconds(12)
 do {
   try {
